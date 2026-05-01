@@ -30,116 +30,536 @@ Exception: if user ran `all`, end with `All checks complete. Fix in priority ord
 ## SUBCOMMAND BEHAVIORS
 
 ### nitpick
-Analyze the most recently modified files or feature files visible in the codebase.
+Analyze the most recently modified files or feature files visible in the codebase. Cover every surface area a website can have. Report only real issues with actual file names and line numbers. Skip anything genuinely handled correctly.
 
-Check:
-- Every input field: number fields for negative/zero/overflow/NaN; text fields for max length/special chars/empty string; optional fields for null/undefined handling
-- Every async call: missing .catch(), missing loading state, missing error state
-- Every conditional: missing else, missing default case in switch, inverted logic
-- Every function return: can it return undefined when caller expects a value?
+**Text inputs (input[type=text], textarea, search, email, url)**
+- Empty string and whitespace-only accepted as valid?
+- Max length enforced client-side AND server-side?
+- Special chars: quotes, angle brackets, null byte `\0`, emoji, RTL override chars handled?
+- Email: validated with RFC-compliant regex, not just `@` presence?
+- URL: scheme validated? `javascript:` protocol blocked?
+- Autofill attributes (`autocomplete`) set correctly? Sensitive fields have `autocomplete="off"` or correct value?
+- Controlled input: can value become `undefined`, turning controlled → uncontrolled?
 
-Report only real issues with actual file names and line numbers. Skip anything that's genuinely handled correctly.
+**Number inputs (input[type=number], currency, quantity, age, rating)**
+- Zero, negative, and very large values accepted silently?
+- Float where integer expected? (quantity: 1.5 items)
+- NaN, Infinity, or empty string returned when field cleared?
+- Currency: floating-point arithmetic used instead of integer cents?
+- Percentage fields: values > 100 or < 0 allowed?
+- Step attribute present but server doesn't validate step compliance?
+
+**Password inputs**
+- Plaintext value logged on error or in analytics?
+- Paste disabled unnecessarily (breaks password managers)?
+- Strength meter enforced on submit or only visual?
+- Confirm-password comparison done client-side only — no server re-validation?
+- Old password checked server-side when changing password, or skipped?
+
+**OTP / PIN inputs**
+- Paste of full code handled? (paste "123456" into first box)
+- Auto-advance on digit entry — works on Android numeric keyboards?
+- Backspace on empty box focuses previous box?
+- Resend throttled? Counter resets on page refresh?
+
+**Phone number inputs**
+- Country code included in validation or assumed?
+- Non-numeric chars (spaces, dashes, parens) stripped before storage?
+- International numbers (E.164 format) handled?
+
+**Credit card inputs**
+- Card number spaces stripped before submit?
+- Expiry: month > 12 accepted? Past expiry accepted?
+- CVV: 3 or 4 digits depending on card type?
+- PAN logged in server logs, error messages, or analytics events?
+
+**Select / dropdown (single and multi-select)**
+- Default placeholder option has value `""` — does server accept empty string as valid?
+- Disabled options still submittable via direct HTTP request?
+- Zero selections allowed where at least one is required?
+- Duplicate tags or selections possible in multi-select?
+- Very large selection count causes performance issues or truncated payload?
+
+**Radio buttons and checkboxes**
+- No option pre-selected — form submits without required field?
+- Value is a string; server casts to int — `"0"` vs `0` mismatch?
+- Radio keyboard navigation: arrow keys cycle within group?
+
+**Toggle / switch**
+- Visual state diverges from actual value after async update fails?
+- Optimistic toggle reverts on error? User sees the revert?
+
+**Date / time pickers**
+- Timezone: date stored as UTC, displayed in user's timezone, re-submitted in local time — off-by-one-day at DST boundary?
+- Date range: end date before start date accepted?
+- Feb 29 in non-leap year, Sep 31 (doesn't exist) handled?
+- Min/max constraints enforced server-side, not just via UI picker disabled state?
+- User typing directly into field instead of using picker — free-text bypasses validation?
+
+**Range / slider inputs**
+- Min equals max — slider stuck?
+- Value snaps to step but submitted value is between steps via direct input?
+- Dual-handle range: min handle dragged past max handle?
+
+**File upload inputs**
+- MIME type checked by file content (magic bytes), not just extension or `Content-Type` header?
+- File size limit enforced server-side? Client-side limit bypassable.
+- Multiple files: total size exceeds limit even if individual files don't?
+- Empty file (0 bytes) uploaded successfully?
+- Filename: path traversal (`../../etc/passwd`), null bytes, very long names handled?
+- File stored with original user-supplied filename? (Should use generated name)
+- Drag-and-drop zone: what happens when folder is dropped instead of file?
+- Upload progress shown? Cancelled upload cleaned up on server?
+
+**Rich text editors (WYSIWYG — Quill, TipTap, Lexical, CKEditor)**
+- Raw HTML output stored and rendered with `dangerouslySetInnerHTML` or `v-html` without sanitization? (XSS vector)
+- Max content length enforced? Editor allows unlimited paste.
+- Empty editor: outputs `<p><br></p>` or `""` — server treats both as empty?
+- Pasted content from Word/Google Docs brings malicious scripts?
+- Images embedded as base64 data URIs bloating DB?
+
+**Code editors (Monaco, CodeMirror)**
+- User-submitted code executed server-side without sandboxing?
+- Very large files cause editor to hang?
+
+**Forms (general)**
+- Submit button not disabled during in-flight request — double submission possible?
+- Form submits on Enter key — unintended for multi-field forms?
+- Client-side validation bypassed by disabling JS — server re-validates all fields?
+- `required` attribute on hidden field blocks submission silently?
+- Autosave: rapid typing triggers excessive API calls without debounce?
+- Form reset clears controlled state but not uncontrolled (ref-based) inputs?
+- CSRF token missing or not rotated after login?
+
+**Navigation (menus, sidebar, topbar, hamburger)**
+- Active link state reflects actual current route or hardcoded?
+- Dropdown menu closes on outside click but not on Escape key?
+- Mobile hamburger menu: focus not trapped inside while open?
+- Navigation items fetched async: flash of empty nav before load?
+
+**Tabs**
+- URL not updated on tab change — refresh loses active tab?
+- Disabled tab reachable via keyboard (tabIndex not -1)?
+- Tab panel content renders when tab hidden — wastes render cycles, exposes to scrapers?
+
+**Pagination**
+- Page 0 or negative page number accepted by API?
+- Last page: `next` button shown when no more results?
+- Page size: very large `limit` param accepted by API (dumps entire table)?
+- Pagination state lost on browser back — user returns to page 1?
+
+**Infinite scroll / virtual scroll**
+- Scroll position jumps when new items prepended?
+- Fetch triggered multiple times rapidly (no lock)?
+- All fetched items held in memory — performance degrades after many pages?
+- End-of-list state shown? Or spinner forever?
+
+**Tables and data grids**
+- Sorting applied client-side on current page only, not full dataset?
+- "Select all" selects only current page or all pages?
+- Bulk actions on large selection: request body too large?
+- Column with user-supplied content rendered with `innerHTML`? (XSS)
+- Sorting by column with null values — nulls sort consistently?
+
+**Search and filter**
+- Search request debounced? (Fires on every keystroke = request storm)
+- Special search chars (`%`, `_`, `*`, quotes) escaped before DB query?
+- Empty search string returns all results (full table scan)?
+- Autocomplete/typeahead: stale slow response overwrites fresh recent one? (AbortController missing)
+
+**Modals and dialogs**
+- `body` scroll locked when modal open? Leaks through on iOS Safari?
+- Focus not trapped inside modal?
+- Escape key closes modal?
+- Confirm dialog: "Confirm" double-clicked fires action twice?
+- Backdrop click closes modal with unsaved changes without warning?
+
+**Toast / snackbar notifications**
+- Rapid actions create unbounded toast stack?
+- Error toasts auto-dismiss — user misses the error?
+- Toast has no accessible `role="alert"` or `aria-live`?
+
+**Loading states and error states**
+- No loading state shown for async operations?
+- Spinner shown indefinitely if request hangs (no timeout)?
+- Generic "Something went wrong" with no actionable next step?
+- Error message exposes internal details (stack trace, DB error, file path)?
+- Empty list: distinguishes "no results" vs "filter returned nothing" vs "loading"?
+- Error boundary catches render errors but not async errors outside React tree?
+- Retry button re-triggers same failed request without fix?
+
+**Async calls (fetch, axios, API calls)**
+- Missing `.catch()` or `try/catch` — promise rejection unhandled?
+- Error state not reset before next request — stale error shown alongside fresh data?
+- Request not cancelled (AbortController) when component unmounts or user navigates?
+- Parallel requests where only last response matters — earlier slow response overwrites recent one?
+- No timeout on fetch — request hangs indefinitely?
+
+**Async state (React Query, SWR, Apollo, Vuex, Pinia, Redux)**
+- Stale data shown after mutation without cache invalidation or optimistic update?
+- Optimistic update not rolled back on error?
+- Cache shared across users in SSR — one user's data bleeds into another's response?
+- Query key includes user input — special chars break cache lookup?
+
+**Real-time (WebSocket, SSE, long polling)**
+- Reconnection logic: reconnects instantly in tight loop instead of exponential backoff?
+- Messages processed out of order — no sequence number or timestamp-based ordering?
+- Connection open for unauthenticated users — auth checked at WebSocket handshake?
+- Event listener added on every re-render — duplicate handlers accumulate?
+- Tab hidden (`visibilitychange`) — connection paused/resumed correctly?
+
+**Drag and drop**
+- Drop target accepts wrong data type silently?
+- Drag from list A to list B: item removed from A before server confirms add to B?
+- Touch drag (mobile): `TouchEvent` handled or only `MouseEvent`?
+- Drop on self (item dragged onto its own position) — no-op handled?
+
+**URL and routing**
+- Query string params with special chars not encoded — breaks parsing?
+- Redirect after login sends user to `?redirect=javascript:alert(1)`? (Open redirect / XSS)
+- Browser back button: URL updates but component state doesn't?
+- Route param (`:id`) is numeric — what if `id` is `NaN`, `undefined`, or `abc`?
+- Hard refresh on deep link returns 404 (SPA not configured for server-side fallback)?
+
+**Local storage / session storage / cookies**
+- Sensitive data (token, PII) stored in localStorage — accessible to XSS?
+- Storage quota exceeded — `setItem` throws, unhandled?
+- Storage read assumes JSON.parse succeeds — corrupt value crashes app?
+- Cookie: `HttpOnly`, `Secure`, `SameSite` flags set on session cookies?
+- Storage event (cross-tab sync) causes unexpected state update?
+
+**Authentication flows**
+- Login form: different error for "user not found" vs "wrong password" — user enumeration?
+- OAuth redirect: `state` param validated to prevent CSRF?
+- JWT stored in localStorage (XSS risk) vs HttpOnly cookie?
+- Session fixation: session ID regenerated after login?
+- Token expires mid-flow — user loses unsaved work with no warning?
+- After timeout, redirect to login preserves deep link for post-login redirect?
+
+**Permission / role-based UI**
+- UI elements hidden based on role but API endpoint not protected? (Security theater)
+- Role fetched async: UI flashes unauthorized content before role loads?
+- Hardcoded role names in frontend (e.g., `role === 'admin'`) — breaks when role renamed?
+
+**Payments and checkout**
+- Payment form submitted before card validation completes?
+- Network error mid-payment: charge goes through but confirmation not received — duplicate charge on retry?
+- Price computed client-side and sent to server — server must recompute from source of truth?
+- Coupon applied client-side — server must validate independently?
+- PCI: card details pass through your server instead of going direct to payment processor?
+
+**File downloads**
+- Download URL exposed with no auth check — unauthenticated access to private files?
+- Presigned URL expiry: user bookmarks link that expires?
+- Filename set via `Content-Disposition` header? User-supplied filename sanitized?
+
+**Image rendering**
+- Broken image: no fallback `<img onerror>` or `<picture>` source?
+- Image dimensions not specified — layout shift (CLS) while loading?
+- User-uploaded SVG rendered directly — XSS via `<script>` in SVG?
+- `<img src={userSuppliedUrl}>` — SSRF if server proxies images?
+
+**Video and audio**
+- Autoplay with audio on page load — blocked by browser, no fallback?
+- Video controls missing — no pause/volume?
+- Video URL requires auth — direct `<video src>` fails for protected content?
+
+**Carousels / image sliders**
+- Auto-advance: stops on user interaction? Respects `prefers-reduced-motion`?
+- Single item: prev/next arrows shown and active?
+
+**Charts and visualizations**
+- Data with null/undefined values causes render crash?
+- Very large dataset causes render hang?
+- Chart redraws on every parent re-render (missing memoization)?
+- Color-only data encoding — inaccessible to colorblind users?
+
+**Maps**
+- API key exposed in client bundle without domain restriction?
+- Map renders before coordinates loaded — default (0,0) flash?
+- User geolocation: permission denied → graceful fallback?
+
+**Keyboard shortcuts and hotkeys**
+- Shortcut fires when user types same key in text input?
+- Shortcut event listener not removed on component unmount?
+
+**Copy to clipboard**
+- `navigator.clipboard` requires HTTPS — fails on HTTP dev without fallback?
+- Clipboard write fails silently?
+
+**Responsive design and mobile**
+- Touch targets smaller than 44×44px?
+- Input zoom on iOS Safari (font-size < 16px triggers zoom on focus)?
+- Hover-only interactions inaccessible on touch devices?
+
+**Dark mode / theme switching**
+- Hardcoded color values not using CSS variables — broken in dark mode?
+- Theme applied before first paint (FOUC)?
+
+**Internationalization (i18n)**
+- Hardcoded English strings not extracted to translation keys?
+- String concatenation for translated phrases (word order differs by language)?
+- Plural forms: only English singular/plural handled?
+- Date, number, and currency formatted with locale-aware APIs (`Intl`)?
+- RTL languages: layout mirrors correctly?
+- Text expansion: German/Finnish strings 30–40% longer — overflow/truncation?
+
+**Feature flags**
+- Flag checked client-side only — feature accessible via direct API call?
+- Missing flag key returns `undefined` — treated as enabled or disabled?
+- Old flags never cleaned up — dead code accumulates?
+
+**Analytics and tracking**
+- Event fires on render, not on user action — inflated metrics?
+- Same event fired multiple times per action?
+- PII (email, name, ID) sent in analytics event properties?
+- Events fired in test/staging pollute production analytics data?
+
+**Third-party embeds (iframes, widgets)**
+- iframe `src` constructed from user input — iframe injection?
+- iframe missing `sandbox` attribute?
+- Third-party script loaded without SRI (subresource integrity)?
+
+**Event listeners (scroll, resize, visibilitychange, beforeunload)**
+- `scroll` or `resize` listener not debounced/throttled?
+- Listener added without removal in cleanup?
+- `beforeunload` prevents navigation for all cases, not just unsaved changes?
+
+**Conditional rendering / logic**
+- Falsy zero `0` renders in JSX (`{count && <Comp/>}` renders `0` when count is 0)?
+- Switch statement: missing `default` case leaves variable uninitialized?
+- Short-circuit `||` used for default value but `false` and `0` are valid (use `??` instead)?
+
+**Function returns**
+- Function that should return a value has a code path that returns `undefined` implicitly?
+- Async function returns value from inside `.then()` but outer function returns `Promise<void>`?
+- `.map()` with no return in callback returns array of `undefined`?
 
 ### crossfire
 Read the git diff (run `git diff HEAD~1` or `git diff --cached` or `git status` to find what changed).
 
-For every changed file, function, type, or API contract:
-- Find every other file that imports or depends on it
-- Check if the change is backwards compatible with all consumers
-- Check shared types — if a type changed, find every place it's used
-- Check shared utilities — if behavior changed, find every caller
-- Check API routes — if request/response shape changed, find every client
-- If this is a public or internal API consumed by other teams or services: is the change additive (safe) or destructive (breaking)? Is there versioning? Are downstream consumers notified?
+For every changed file, function, type, or API contract: find every file that imports or depends on it, check backwards compatibility with all consumers, check shared types, shared utilities, and API routes. If public/internal API: is change additive (safe) or destructive (breaking)? Is there versioning?
+
+Also check these dependency vectors frequently missed:
+- Event bus / pub-sub: if an event payload or name changed, find every subscriber (not caught by static analysis)
+- GraphQL schema: if a field was renamed, removed, or made non-nullable, find every query/fragment/mutation referencing it
+- gRPC / protobuf: if a `.proto` changed, was generated code regenerated and committed?
+- Cron jobs: if a function called by a scheduler changed, the cron is a hidden consumer
+- Test doubles and mocks: mocks mirroring the old contract still pass tests but real integration breaks
+- Analytics event schemas: if an event payload changed, downstream pipelines (Segment, BigQuery) break silently
+- Webhook payloads: if outbound webhook structure changed, every external subscriber breaks — notify consumers
+- Environment variables: new required env var must be in `.env.example`, CI secrets, staging and production configs
+- CSS/design tokens: token renamed or removed — grep for it across all stylesheets and component files
+- OpenAPI / Swagger spec: request/response changed — is spec updated? Downstream generated clients break on next regen
+- Database views or stored procedures: column renamed/removed — check views, triggers, stored procs referencing it
 
 Output format: "Your change to X affects Y and Z. Here is why and what to check."
 
 ### scenario
 Think in complete user journeys, not individual functions.
 
-Pick the primary feature being worked on. Trace these flows end to end through the codebase:
+Pick the primary feature. Trace these flows end to end:
 1. Happy path: user does the main action successfully
 2. Error path: something fails mid-flow — what happens to state?
 3. Recovery path: user retries after error — does it work or is state corrupted?
 4. Partial completion: flow interrupted halfway (network drop, browser close) — what is left behind?
+5. Concurrent users: two users act on the same record simultaneously — who wins, is data consistent?
+6. Privilege path: can a low-privilege user reach a high-privilege outcome through individually valid steps?
+7. Session boundary: session expires or another user logs in mid-flow — what state is left, is data leaked?
+8. Slow / offline path: user loses connectivity mid-flow — what happens on reconnect? Retried, duplicated, or lost?
 
-For each flow, trace actual function calls and data transformations. Find where state is lost silently, errors have no recovery, UI shows stale data, or partial writes leave DB in inconsistent state.
+Also trace side effects of the primary action:
+- Emails / SMS / push: sent on success? If notification service fails, does main action roll back or proceed silently?
+- Webhooks dispatched: if webhook fails, is it retried? Is main action already committed?
+- Cache invalidated after action — or still serving old value?
+- Admin / backoffice view: does it show the correct updated state immediately?
 
 ### regression
 Read recent git history (`git log --oneline -20` and `git diff HEAD~1`).
 
-Find:
-- Every test file that tests code touched by recent changes — are those tests still valid?
-- Every API endpoint that changed — find every caller (FE components, other services, scripts)
-- Every database query or schema that changed — find every place that table/column is used
-- Every shared utility that changed — find every import
+Find: every test touching changed code, every API caller, every DB table consumer, every shared utility import at risk.
 
-Output: "These existing features are at risk from your changes:" then list each one with the specific dependency chain.
+Also check:
+- Test fixtures and factories: if schema changed, are seed files and factory functions updated? Tests pass on old fixtures, fail on real data.
+- Environment variables: new required env var in `.env.example`, CI secrets, staging and prod configs?
+- Generated code: GraphQL schema, proto, OpenAPI spec, ORM models changed — was generated code regenerated and committed?
+- Rollback safety: if this change is deployed and immediately rolled back, does the old code work against the new DB state?
+- CI/CD pipeline: if a build script, Dockerfile, or GitHub Actions workflow changed, do all dependent jobs still pass?
+- Feature flag coupling: flag also set in all environments where tests run? Tests could pass with flag on but fail in prod with flag off.
+
+Output: "These existing features are at risk from your changes:" then list each with the dependency chain.
 
 ### security
 Scan the entire codebase. Check only for real issues present in actual code.
 
-Check:
-- Routes/endpoints with no auth middleware or guard decorator
-- Endpoints that check authentication but not authorization (authed but can access other users' data)
-- User-controlled input passed to DB queries without parameterization
-- User-controlled input passed to shell commands, eval(), or dynamic requires
-- PII (email, phone, password, token) appearing in console.log, logger calls, or error messages returned to client
-- Hardcoded secrets, API keys, passwords in source code or config files committed to repo
-- Missing rate limiting on auth endpoints (login, password reset, OTP)
-- CORS configured to allow all origins (`*`) on credentialed endpoints
-- JWT/session tokens: missing expiry, missing signature verification, algorithm set to "none"
-- File uploads: missing type validation, missing size limits, path traversal risks
-- Mass assignment: is req.body or user-controlled input spread directly into a DB update/create without an allowlist of safe fields?
+**Injection and input attacks**
+- SQL injection: user input in DB queries without parameterization
+- Command injection: user input in `exec()`, `spawn()`, `eval()`, dynamic `require()`/`import()`
+- SSTI: user input in server-side template rendering
+- XXE: XML parsers with external entity expansion enabled on user-supplied XML
+- ReDoS: complex regex applied to user input without length limit
+- Prototype pollution: `Object.assign({}, userInput)` or spread of user input onto internal objects (JS)
+- SSRF: user-controlled URLs passed to internal HTTP requests (`fetch(userUrl)`, `axios.get(userUrl)`)
+- Open redirect: `res.redirect(req.query.next)` without validating destination is internal
+
+**Authentication and authorization**
+- Routes with no auth middleware or guard decorator
+- Auth without authorization: authed user can access other users' data (IDOR)
+- JWT issues: missing expiry, missing signature verification, algorithm set to "none", RS256→HS256 confusion
+- Session fixation: session ID not regenerated after login
+- Token comparison using `===` instead of constant-time comparison — timing attack
+- Password reset tokens: not expiring, not single-use, or not scoped to user
+
+**Secrets and exposure**
+- Hardcoded secrets, API keys, passwords in source code or committed config files
+- PII (email, phone, password, token) in `console.log`, logger calls, or error messages returned to client
+- Stack traces, internal paths, or DB schema details returned to client in error responses
+- API keys in client-side JS bundle without domain restriction
+
+**Transport and headers**
+- CORS `*` on credentialed endpoints
+- Missing security headers: `Strict-Transport-Security`, `X-Content-Type-Options`, `X-Frame-Options`/`CSP frame-ancestors`, `Referrer-Policy`
+- CSP missing or too permissive (`unsafe-inline`, `unsafe-eval`, wildcard `*`)
+- Cookies missing `HttpOnly`, `Secure`, `SameSite`
+- WebSocket: `Origin` header not validated — cross-site WebSocket hijacking
+
+**Input and upload**
+- File MIME type checked only by extension, not magic bytes
+- File size limit client-side only; path traversal in filename; user SVG rendered in browser (XSS)
+- Mass assignment: `req.body` spread to DB without allowlist
+
+**Access control**
+- Missing rate limiting on login, password reset, OTP endpoints
+- GraphQL: introspection in production, no query depth/complexity limits, batching abuse
+- Admin functionality missing explicit role check
 
 Flag only real findings. Include exact file and line.
 
 ### performance
 Scan the codebase for real performance anti-patterns.
 
-Check:
-- N+1 queries: loop that runs a DB query per iteration instead of one batched query
-- Full table reads: queries with no WHERE clause, no LIMIT, or loading entire collections into memory
-- Synchronous operations in async handlers: blocking calls that delay response
-- React (if present): components that re-render on every parent render due to new object/array refs, inline function props, missing memo/useCallback/useMemo
-- Unremoved event listeners: addEventListener without corresponding removeEventListener in cleanup
-- Importing entire libraries for one function
-- Repeated identical API calls within the same render or request cycle with no caching
+**Database**
+- N+1 queries: loop runs a DB query per iteration instead of one batched query
+- Full table reads: no WHERE clause, no LIMIT, loading entire collection into memory
+- `SELECT *` when only specific columns needed
+- Missing index on columns used in WHERE, ORDER BY, JOIN ON, GROUP BY
+- Missing index on foreign key columns — full scan on every join
+- Long-running transactions holding row or table locks
+- ORM lazy loading inside a loop — N+1 via relation access
+- No pagination on list endpoints — entire table returned
+
+**Frontend**
+- Components re-render on every parent render due to new object/array refs, inline function props, missing `memo`/`useCallback`/`useMemo`
+- Context value is an object literal — every consumer re-renders on every provider render
+- Large list without virtualization (react-window, react-virtual) — thousands of DOM nodes
+- `useEffect` with missing or over-broad dependency array
+
+**Network**
+- Sequential `await` calls that could be parallelized with `Promise.all`
+- Repeated identical API calls with no caching
+- No HTTP caching headers (`Cache-Control`, `ETag`) on cacheable GET responses
+
+**Assets and bundle**
+- Importing entire libraries for one function (`import _ from 'lodash'`)
+- Large dependency added without checking bundle size impact
+- Images not lazy-loaded, not served in WebP/AVIF, not resized for use case
+- No CDN for static assets — served from origin
+
+**Server**
+- Synchronous blocking operations in async handlers (sync file I/O, sync crypto in Node event loop)
+- In-memory session store in multi-instance deployment — sessions lost on restart, not shared
+- String concatenation in tight loops — O(n²) memory
+- `setInterval`/`setTimeout` not cleared on component unmount
 
 Reference actual code locations. Skip hypotheticals.
 
 ### dataflow
 Trace how data moves through the feature being built.
 
-Check:
-- Type mismatches between layers: what FE sends vs what BE expects, what BE returns vs what FE renders
-- Null/undefined propagation: value that can be null at source, used without null check downstream
-- State mutations: objects mutated directly instead of returning new copies
-- Cache invalidation: after a write, is any cache (client state, server cache, CDN) left stale?
-- Concurrent modification: can two operations modify the same record simultaneously with no locking?
-- Data transformation assumptions: code that assumes a specific format without validating
+**Type and shape mismatches**
+- What FE sends vs what BE expects; what BE returns vs what FE renders
+- Field naming: snake_case from API, camelCase for FE — transformation layer present and consistent?
+- API response envelope inconsistency: sometimes `{ data: [...] }`, sometimes `[...]` — consumer handles both?
+- Boolean coercion: DB returns `1`/`0` (MySQL tinyint) but code compares with `true`/`false`
+- BigInt IDs: serialized to number in JSON, JS loses precision for values > 2^53
+- Array vs single item: API returns array for multiple but object for single result
+
+**Null and undefined propagation**
+- Value that can be null at source, used without null check downstream
+- Optional chaining `?.` swallows null silently — downstream code receives `undefined` with no error
+- API field optional in schema but treated as required in consumer
+
+**Serialization and encoding**
+- Dates serialized to ISO string on response; consumer uses as Date object without parsing
+- Dates stored in DB as local time instead of UTC
+- Emoji / 4-byte Unicode in MySQL `utf8` column (not `utf8mb4`) — silently truncated
+- Decimal precision: `parseFloat` on monetary value — floating-point error accumulates
+
+**Mutations and shared state**
+- Objects mutated directly instead of returning new copies (reducers, shared state) — React/Vue won't detect change
+- Array mutating methods (`sort`, `reverse`, `splice`) called on state arrays directly
+
+**Cache and staleness**
+- After write, cache (client state, server, CDN) still serving old value
+- Optimistic update applied but server rejects — UI not rolled back to actual server state
+
+**Versioning and concurrency**
+- Two operations can modify same record simultaneously with no locking or version check
+- Client submits update without version field — server silently overwrites concurrent change
+- Derived fields (totals, counts) not recomputed after related data changes
 
 ### fallback
 Find every place the feature can fail with no fallback.
 
-Check:
-- API calls: missing .catch() or try/catch, or catch block that swallows error silently
-- DB queries: no error handling, or error handler that returns a success response anyway
-- Queue/background jobs: no retry policy, no dead letter queue, no alerting on failure
-- Third-party services: no timeout configured, no fallback if service is down
-- Multi-step flows: if step 3 of 5 fails, is there a resume mechanism or does user start over?
-- Webhook handlers: missing signature verification failure handling
+**Unhandled failures**
+- API calls: missing `.catch()` / `try/catch`, or catch block that swallows error silently
+- DB queries: no error handling, or error handler returning success anyway
+- File operations: read/write with no error handler (disk full, permission denied)
+- Webhook handlers: bad signature silently accepted or silently rejected with no logging
+
+**Background work**
+- Queue/background jobs: no retry policy, no DLQ, no alerting on repeated failure
+- Cron jobs: failure not logged or alerted
+- Long-running jobs: no timeout — hangs indefinitely, blocking queue
+- Batch operations: partial failure (items 1-8 succeed, item 9 fails) — reported? All rolled back or partial commit?
+
+**Third-party dependencies**
+- No timeout on outbound requests — hangs indefinitely when service is slow
+- No circuit breaker — repeated failures keep hammering downed service
+- 429 rate limit response: consumer immediately retries — amplifies the problem, needs backoff
+- Non-critical service (recommendations, ads) down — does core feature still work or does page crash?
+
+**Infrastructure**
+- DB connection pool exhausted: new requests throw or queue forever — no user-facing error
+- Health check endpoint: returns 200 always without actually testing DB/Redis/queue connectivity
+- Graceful shutdown: on SIGTERM, in-flight requests not completed — users get aborted responses
+
+**Multi-step flows**
+- Step 3 of 5 fails — resume mechanism, or user starts over?
+- If step 3 succeeds but step 4 fails, is step 3's side effect (charge, email, record) reversed?
 
 For each: file and line, what fails, what happens when it fails, how to add a fallback.
 
 ### edge
 Systematically test boundaries. Be semantic — understand what each field IS before testing edges.
 
-**Numeric fields:** zero, negative, very large number, float where int expected, NaN, Infinity
-**String fields:** empty string, whitespace only, max length + 1, special chars (quotes, angle brackets, null byte, emoji), SQL/script injection strings
-**Optional fields:** null, undefined, missing from request entirely
-**Collections/arrays:** empty array, single item, very large array, duplicates, items in wrong order
-**Dates:** past, future, today, DST boundary, Feb 29 in non-leap year, epoch zero
-**Enums/status fields:** valid values, invalid string, null, integer where string expected
+**Numeric:** zero, negative, very large (beyond int32 max 2,147,483,647), float where int expected, NaN, Infinity, -Infinity, -0
+**String:** empty, whitespace-only, max+1 length, single quote, double quote, null byte `\0`, emoji 🎉, 4-byte emoji 🧑‍💻, RTL override char (U+202E), SQL injection (`' OR '1'='1`), script injection (`<script>alert(1)</script>`)
+**Optional:** null, undefined, missing from request entirely, explicitly set to `null` vs key absent (many validators treat differently)
+**Arrays:** empty `[]`, single item, very large (10k+), duplicate items, wrong order, nested exceeding depth limits
+**Dates:** far past (before epoch), far future (year 9999), today at midnight, DST transition hour (1:30am exists twice), Feb 29 non-leap, Sep 31 (doesn't exist), Unix epoch `0`, invalid format string
+
+**Additional field types:**
+- **IDs:** `0`, negative, max int64, UUID wrong format, SQL-looking string
+- **Boolean-like:** `true`, `"true"`, `"1"`, `1`, `TRUE` — server accepts canonical type only?
+- **Passwords:** 73+ chars (bcrypt truncates at 72 — longer password has same hash as 72-char prefix), spaces-only, Unicode normalization
+- **Email:** `user@` (missing TLD), `@domain.com`, very long local part (>64 chars), international domain
+- **URLs:** no scheme, relative URL, URL with credentials (`user:pass@host`), `data:` URI, `blob:` URI, very long
+- **Geographic coords:** lat > 90 or < -90, lng > 180 or < -180, exactly (0,0) (Null Island — sign of missing value)
+- **Usernames:** reserved words (`admin`, `null`, `undefined`, `root`), HTML tags, leading/trailing spaces trimming to existing username, Unicode homoglyphs
+- **Currency:** zero-amount, negative amount (refund path?), sub-cent, amount causing integer overflow at quantity
+- **JSON fields:** deeply nested (stack overflow on parse), `__proto__` key (prototype pollution), `NaN`/`Infinity` (not valid JSON)
+- **Enum/status:** unknown string (new value added server-side, old client doesn't know it), null, integer where string expected
 
 Report which edges are unhandled, not just which exist.
 
@@ -149,121 +569,272 @@ Map the complete state machine for the primary feature.
 1. List every state data can be in
 2. List every valid transition
 3. Check: can it go backwards? Can steps be skipped? What enforces valid transitions — DB constraint, application logic, or nothing?
-4. Check: if the application crashes mid-transition, what state is the system in? Is there a recovery path?
+4. Check: crash mid-transition — what state is the system in? Is there a recovery path?
 5. Check: race condition between two simultaneous state transitions on the same record
+
+Also check:
+- Terminal state revival: can a terminal state (cancelled, deleted, completed) be accidentally re-entered? Blocked at DB level or only in app code?
+- Soft delete leakage: do all queries filter `WHERE deleted_at IS NULL`? One missing filter exposes deleted records.
+- Orphaned records: parent deleted — child records cleaned up (cascade) or become orphans?
+- External state divergence: third-party (Stripe, Twilio) has different state than your DB — reconciliation job? What triggers it?
+- State in URL vs DB: user manipulates URL param (`?step=4`) to skip step 1 — is each step enforced independently?
+- Draft with missing required fields: can a draft be published while still missing required fields?
+- Concurrent state transitions: `pending` → two workers pick it up simultaneously → both transition to `processing` — pessimistic lock or atomic compare-and-swap?
 
 Find impossible states that the code can accidentally produce.
 
 ### concurrent
 Find race conditions in the feature.
 
-Check:
-- Double submit: form submitted twice before first response returns — does it create duplicate records? Is submit button disabled? Is request idempotent?
-- Multi-tab: two tabs open, user takes conflicting actions — which wins? Is the other tab notified?
-- Background job + API request on same record: is there optimistic locking?
-- Signup/account creation: two requests with same email simultaneously — does uniqueness constraint exist at DB level, not just app level?
-- Inventory/booking: two users claiming last item simultaneously — is there a DB-level lock or atomic decrement?
-- Token refresh: multiple simultaneous requests when token is expired — do they all refresh or is there a single-flight guard?
+**Classic races**
+- Double submit: form submitted twice — duplicate records? Submit button disabled? Request idempotent?
+- Multi-tab: conflicting actions in two tabs — which wins? Other tab notified (storage event, broadcast channel)?
+- Background job + API on same record — optimistic locking (version field)?
+- Signup race: two simultaneous requests with same email — DB-level uniqueness constraint, not just app-level check?
+- Last item booking: two users simultaneously — DB-level atomic decrement or `SELECT ... FOR UPDATE`?
+- Token refresh stampede: multiple parallel requests when token expires — single-flight guard serializes refresh?
+
+**Less obvious races**
+- Read-modify-write without atomic op: `balance = fetch(); balance += 10; save(balance)` — use `UPDATE SET balance = balance + 10`
+- Cache stampede: cached value expires simultaneously for many requests — lock or probabilistic early expiration?
+- Webhook duplicate delivery: provider retries on timeout — handler idempotent? Deduplication by event ID?
+- Delete while in use: record deleted by admin while background job is processing it
+- Optimistic concurrency without enforcement: client sends `version: 5` in update — server doesn't actually check it?
+- Email uniqueness in two-step flows: user changes email mid-verification — original email re-registerable immediately?
+- Pagination cursor drift: background job inserts/deletes while user paginates — offset pagination skips or duplicates rows
 
 ### audit
 Find critical actions with no audit logging.
 
-These actions MUST be logged with who, what, when, and result:
-- Authentication events: login, logout, failed login, password reset, MFA
-- Authorization changes: role assigned/removed, permission granted/revoked
-- Data deletion: any record deleted or soft-deleted
-- Financial operations: order created, payment processed, refund issued, subscription changed
-- Admin actions: any action taken by an admin on behalf of or affecting another user
-- Data exports: any bulk data access or export
+Log with who (user ID + IP + user agent), what (resource type + ID + before/after values), when, result (success/failure + reason):
 
-For each unlogged action: file and line, what's missing, what should be logged.
-Also check: do any error messages or log lines expose sensitive data?
+**Authentication and identity**
+- Login: success and failure (wrong password, locked, MFA failed)
+- Logout (explicit and session expiry)
+- Password change (settings vs reset flow — distinguish these)
+- MFA enabled, disabled, or method changed
+- Account lockout triggered, admin unlock
+
+**Authorization and access**
+- Role assigned or removed
+- Permission granted or revoked
+- API key created, rotated, or deleted
+- OAuth app authorized or revoked
+
+**Data lifecycle**
+- Record deleted or soft-deleted (log what was deleted)
+- Record restored from soft-delete
+- Bulk import (who, how many records, source filename)
+- Data export or bulk download (who, what dataset, record count)
+
+**Financial**
+- Order created, modified, cancelled; payment processed, failed, retried; refund issued; subscription changed
+
+**Admin actions**
+- Any action by admin affecting another user (impersonation, forced reset, data access)
+- System configuration changed (settings, feature flags, rate limits)
+
+**Log quality checks**
+- Audit log append-only? Can records be deleted/modified by application code?
+- Sensitive data (passwords, tokens, PAN) appearing in log lines?
+- Stack traces or internal details returned to client in error responses?
+- IP address and user agent captured for auth events?
+- Audit logs retained for required compliance period?
+- If operation fails partway, is failure logged — or only successes?
+
+For each unlogged action: file and line, what's missing, what to log.
 
 ### integration
 Check every third-party API call in the codebase.
 
-For each external call:
-- Is the response format validated before use, or assumed to match expected shape?
-- What happens if the API returns an unexpected status code (429, 503, unexpected 200 shape)?
-- For webhooks: is the signature/HMAC verified before processing the payload?
-- Is there retry logic with backoff for transient failures?
-- Is there a timeout configured?
-- Are API keys/secrets in environment variables, not source code?
-- If this API goes down, does it silently fail or propagate to user?
+**Request and response**
+- Response format validated before use, or assumed to always match? (Provider changes — app crashes)
+- Unexpected status codes handled (429, 503, redirect 301/302, unexpected 200 shape)?
+- Paginated provider responses: all pages fetched, or only first page silently?
+- Specific API version pinned? What happens when provider deprecates current version?
+
+**Reliability**
+- Timeout on every outbound request? (Default is often none)
+- Retry with exponential backoff for transient failures (5xx, network errors)?
+- 429 handled with backoff — not immediately retried?
+- Circuit breaker: after N failures, stop calling and return cached/degraded response?
+
+**Webhooks**
+- HMAC signature verified before processing?
+- Webhook processed synchronously (risks timeout, duplicate processing) — should be queued
+- Handler idempotent — same event delivered twice doesn't corrupt state? Deduplication by event ID?
+- Events may arrive out of order — does handler handle older event arriving after newer one?
+
+**Security**
+- API keys in env vars, not source code?
+- Keys scoped to minimum required permissions? Rotated on schedule?
+
+**Observability**
+- Outbound API calls logged with provider, method, status, latency?
+- Alerting if provider fails for extended period?
+
+**Data and compliance**
+- Provider stores user data? Data residency correct for GDPR/data sovereignty?
 
 ### hotpath
-Identify the single most critical user flow in this codebase (payment flow, login flow, core product action — the one that cannot break).
+Identify the single most critical user flow (payment, login, core product action — the one that cannot break).
 
-Then check it obsessively:
-1. Every input: validate all edge cases for every field in this flow
-2. Every error: what happens at each step if it fails?
-3. Every dependency: what external services, DB tables, queues does this flow touch?
-4. Every assumption: what does this code assume is always true? What if it isn't?
-5. Every race condition: can this flow be triggered twice simultaneously?
-6. Every auth check: is identity verified at every step, or just at entry?
-7. Every log: if this flow fails in production at 3am, do you have enough logs to diagnose it?
+Check it obsessively:
+1. **Every input**: edge cases for every field — see `edge` subcommand's full list
+2. **Every error**: at each step, is user informed? Is state left safe and consistent?
+3. **Every dependency**: external services, DB tables, queues, caches — if any one is unavailable?
+4. **Every assumption**: what does code assume is always true? What if it breaks?
+5. **Every race condition**: triggered twice by same user (double click, duplicate tab)? By two users on same resource?
+6. **Every auth check**: identity verified at every step, not just at entry?
+7. **Every log**: enough logs, metrics, traces to reconstruct exactly what happened for which user at which step at 3am?
+8. **Idempotency**: user retries (network error, back button, refresh mid-flow) — duplicate side effects (double charge, duplicate email)?
+9. **Circuit breakers**: downstream service degraded — fail fast or hang until timeout, degrading all users?
+10. **Observability**: latency metrics and distributed traces, not just logs? Detectable if p99 latency spikes 10x?
+11. **Rollback**: writes to DB and then fails — partial write rolled back in transaction or left inconsistent?
 
 This path cannot break. Report everything.
 
 ### a11y
 Check accessibility issues in UI code. Skip if no UI code present.
 
-Check:
-- Interactive elements missing `aria-label` or `aria-describedby` when purpose isn't clear from text content
-- Images missing `alt` text, or decorative images missing `alt=""`
-- Form inputs missing associated `<label>` (via `htmlFor` / `for` attribute or `aria-label`)
-- Keyboard navigation: can all interactive actions be completed without a mouse?
-- Focus management: after a modal/dialog opens, is focus trapped inside it? After it closes, does focus return to the trigger?
-- Hardcoded color values that may fail WCAG AA contrast ratio
-- Dynamic content updates: are async changes announced to screen readers via `aria-live`?
-- Error messages: are they programmatically associated with their input via `aria-describedby`?
-- Role misuse: are non-semantic elements used as interactive controls without `role` and keyboard handlers?
+**Labels and names**
+- Interactive elements (buttons, links, inputs) missing `aria-label` or `aria-describedby` when purpose isn't clear from text alone (icon-only buttons, search inputs)
+- Images missing `alt`; decorative images missing `alt=""` (empty string, not missing attribute)
+- Inputs missing `<label>` via `htmlFor`/`for`, `aria-label`, or `aria-labelledby`
+- Placeholder used as the only label — disappears on input, not a label
+
+**Keyboard and focus**
+- Interactive actions only possible with mouse — no keyboard equivalent on click handlers for non-interactive elements
+- `tabindex` values > 0 — disrupts natural tab order
+- Focus not trapped inside modal while open — Tab exits to background content
+- After modal closes, focus not returned to trigger element
+- Skip navigation link ("Skip to main content") absent for keyboard users
+- Custom dropdown/combobox/datepicker: keyboard navigation (arrow keys, Enter, Escape) implemented?
+- Drag-and-drop: keyboard-accessible alternative provided (WCAG 2.1)?
+
+**Color and visual**
+- Colors failing WCAG AA contrast ratio (4.5:1 normal text, 3:1 large/bold text and UI components)
+- Color used as only way to convey meaning (red = error with no icon or text)
+- Animations: `prefers-reduced-motion` not respected
+- Text doesn't reflow at 400% zoom without horizontal scroll (WCAG 1.4.10)
+
+**Structure and semantics**
+- `<div onClick>` or `<span onClick>` without `role` and keyboard handler
+- Multiple `<nav>` without `aria-label` to distinguish them
+- Data tables using div grid instead of `<table>` with `<th scope>`
+- Heading hierarchy skipped (h1 → h3) — screen reader nav jumps incorrectly
+- Visual order differs from DOM order due to CSS `order`, `flex-direction: row-reverse`, or absolute positioning
+
+**Dynamic content**
+- Dynamic updates (search results, cart count, toasts) not announced via `aria-live`
+- Form success messages displayed but not announced
+- Form submission with errors: focus not moved to first error or error summary
+- Session timeout warning not announced to screen reader
+- Auto-updating content (scores, feeds) — user cannot pause, stop, or hide (WCAG 2.2.2)
+- `<html lang="">` missing or incorrect — screen reader uses wrong pronunciation rules
+
+**Forms**
+- Error messages not associated with input via `aria-describedby`
+- Required fields not marked with `required` or `aria-required` — only visual asterisk
+- Autocomplete on personal data fields (name, email, address, phone) per WCAG 1.3.5
 
 Flag only real findings in actual UI files with file and line.
 
 ### config
 Check environment and configuration safety.
 
-Check:
-- Are all required environment variables validated at startup — or does the app silently use `undefined`?
-- Does a `.env.example` exist? Do its keys match what the app actually reads?
-- Are there hardcoded `localhost`, `127.0.0.1`, or dev-specific URLs?
-- Are there dev-only flags or verbose logging that could be active in production?
-- Are feature flags handled safely — what happens if a flag key is missing?
-- Are database connection pool sizes configured explicitly?
-- Are timeouts configured on all external connections?
-- Are secrets constructed by string concatenation from multiple env vars?
+**Startup validation**
+- Required env vars validated at startup — or app silently uses `undefined` and fails later at call site?
+- `.env.example` keys match what app actually reads? Key in example missing from config loading, or vice versa?
+- Secrets validated for minimum length/entropy at startup?
+
+**Hardcoded values**
+- Hardcoded `localhost`, `127.0.0.1`, or dev-specific URLs silent-fail in staging/prod?
+- Hardcoded port numbers conflicting with other services?
+- Hardcoded example values from documentation that pass presence checks?
+
+**Environment-specific behavior**
+- Dev-only flags, debug modes, verbose error responses not guarded by `NODE_ENV === 'production'`?
+- Log level `DEBUG`/`VERBOSE` active in production — flooding logs, potentially exposing PII?
+- CORS allowed origins hardcoded to include localhost in production?
+- Profiling/debug endpoints (e.g., `/metrics`, `/debug`) exposed publicly without auth?
+
+**Connection and resource limits**
+- DB connection pool size using ORM default (often 5-10 — too low for production concurrency)?
+- Timeouts on all external connections (DB, Redis, HTTP, message queue)?
+- Max request body size configured? Default often 1MB — too small for uploads or too large (DoS)?
+- Worker count hardcoded instead of CPU core count?
+
+**Security configuration**
+- HTTPS enforced in production? HSTS configured?
+- DB connection encrypted (SSL mode enabled)?
+- Session secret randomly generated per deployment, not a static value in repo?
+- Secrets constructed by string concatenation — one missing var gives `undefined/mydb` silently?
+
+**Operational**
+- Graceful shutdown timeout long enough for in-flight requests to complete?
+- Memory limits set for containers? OOM killer can silently kill process.
+- Feature flags: flag service unreachable — safe default (off) or fail-open (on)?
 
 Flag only real findings with file and line.
 
 ### migration
 Check database migration safety. If no migrations directory exists, say so and stop.
 
-For each migration file modified or added recently:
-- Is there a `down()` / rollback migration?
-- Does the migration add a `NOT NULL` column without a default value?
-- Does the migration rename or drop a column — is application code already updated?
-- Does the migration lock the table and cause downtime?
-- Are indexes created with `CONCURRENTLY` (Postgres) or equivalent?
-- Does the migration assume existing data is in a specific format?
-- If deployment fails halfway through, is the database left in a safe state?
-- Are there `DROP TABLE`, `DROP COLUMN`, or `TRUNCATE` statements behind a safety check?
+**Destructive operations**
+- `DROP TABLE`, `DROP COLUMN`, `TRUNCATE` present — gated behind safety check? Column still referenced in app code?
+- Column rename: safe approach is add new column → deploy code reading both → backfill → drop old as separate migration
+- `NOT NULL` constraint added to existing column without a default — fails on non-empty table
+
+**Locking and downtime**
+- `ALTER TABLE` that changes column type or adds `NOT NULL` — locks table for duration, risk for large tables
+- Index creation not using `CONCURRENTLY` (Postgres) or `ALGORITHM=INPLACE LOCK=NONE` (MySQL)
+- Adding FK constraint on large table: validates all existing rows — can lock for minutes
+- Long backfill in single transaction — locks entire table; should batch the backfill
+
+**Data integrity**
+- Migration assumes existing data is in a specific format — fails mid-way, table left in partial state
+- Enum type change (Postgres `ALTER TYPE`): adding values requires lock; removing requires rewrite
+- Seeds mixed into migration files — seeds are not idempotent (re-running creates duplicates)
+- Migration tested only on small dev DB — does it complete in acceptable time on production data volume?
+
+**Order and rollback**
+- Migration B assumes migration A already ran — correct order in migration history?
+- `down()` rollback function exists? If not, is the operation truly irreversible?
+- If deployment fails after migration runs, does old app code work against new schema?
 
 Flag only real findings with migration filename and operation.
 
 ### dependencies
 Check third-party dependency health.
 
-Check:
-- Packages with known CVEs — cross-reference versions against known vulnerable ranges
-- Packages explicitly marked as deprecated
-- Is a lockfile committed? If not, builds are non-deterministic
-- Are `devDependencies` accidentally listed under `dependencies`?
-- Packages that haven't had a release in 2+ years with open security issues
-- Packages with unexpected `preinstall`/`postinstall` scripts in transitive deps
-- Packages pinned to an exact version that is itself vulnerable
+**Security**
+- Packages with known CVEs (`npm audit`, `pip-audit`, `govulncheck`, `bundler-audit`)
+- Packages pinned to exact version that is itself vulnerable, no semver range to allow safe patch
+- Transitive dependency vulnerability — overridden in `resolutions`/`overrides`/`replace`?
+- `preinstall`/`postinstall` scripts in direct or transitive deps making network calls — supply chain risk
 
-Flag real findings. Include package name, current version, and the issue.
+**Correctness**
+- `devDependencies` listed under `dependencies` — bloats prod bundle, or vice versa — missing at build time
+- Peer dependency conflicts: wrong version of peer dep installed (wrong React version — hooks errors, duplicate context)
+- Duplicate packages: multiple versions of same package installed simultaneously — especially dangerous for React, singleton stores
+- Package only works in browser used in Node.js context, or vice versa — runtime crash, not import-time
+
+**Health and maintenance**
+- Packages explicitly deprecated by maintainers
+- No release in 2+ years with open security issues
+
+**Determinism and integrity**
+- Lockfile (`package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, `poetry.lock`, `go.sum`) not committed — non-deterministic builds
+- CDN script tags loading libraries without version pinning and without SRI (`integrity` attribute)
+
+**Compliance**
+- License incompatible with distribution model (GPL in closed-source commercial product, AGPL with SaaS)
+
+**Size**
+- Newly added dependency with significant bundle size impact not checked
+
+Flag real findings. Include package name, current version, and the specific issue.
 
 ### all
 Run every subcommand above in sequence. Produce one unified report grouped by:
