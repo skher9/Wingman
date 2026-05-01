@@ -55,17 +55,19 @@ Run one command in your project directory:
 
 ## What it catches
 
-Things that actually ship to production and become bug tickets:
+Things that actually ship to production and become 2am bug tickets:
 
-- **Discount field accepts 150%** — frontend validates 0–100, backend applies whatever it receives. Wingman finds the missing server-side clamp.
+**A discount field accepts 150%** because the frontend validates 0–100 but the backend applies whatever the request body sends. One API call from Postman, one order at negative price, one angry finance team. Wingman finds the missing server-side clamp before it becomes a refund.
 
-- **Submit button not disabled after click** — user double-clicks, two orders created, one payment taken, support ticket opened. Wingman flags the missing debounce on the submit handler.
+**A submit button stays enabled after click.** User double-taps on mobile, two orders created, one payment charged, duplicate shipment sent. Support ticket opened, order manually cancelled, customer already confused. Wingman flags the missing disabled state on the handler before your support queue does.
 
-- **`DELETE /api/users/:id` has no auth guard** — anyone who finds the endpoint can delete any user. Wingman checks every route for missing middleware.
+**`DELETE /api/users/:id` has no auth guard.** The route works perfectly — it just works for anyone who finds it. Every user account on your platform is one curl command away from deletion. Wingman checks every route for missing middleware, not just the ones you remembered to protect.
 
-- **Inventory check swallows errors** — if the inventory service times out, the catch block returns `true` and the order goes through on out-of-stock items. Wingman reads the actual catch logic, not just that it exists.
+**The inventory service times out and the catch block returns `true`.** Out-of-stock item gets ordered, warehouse can't fulfill, customer waits two weeks to find out. Wingman reads what your catch block actually does — not just that it exists.
 
-- **User ID taken from request body instead of JWT** — any authenticated user can pass any `userId` in the payload and act as that user. Wingman traces where identity comes from at each layer.
+**`userId` comes from `req.body` instead of the JWT.** Any logged-in user passes someone else's ID in the payload and acts as them — reads their data, places orders on their account, changes their email. Wingman traces where identity is established at every layer, not just at login.
+
+**A promo code field accepts empty string and the backend applies 100% discount.** No validation on either side for the empty case because both sides assumed the other handled it. Wingman maps what each layer actually validates and finds the gap in between.
 
 ---
 
