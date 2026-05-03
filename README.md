@@ -75,6 +75,8 @@ Things that actually ship to production and become 2am bug tickets:
 
 Wingman uses your AI tool's full codebase access — not just the file you have open. It thinks adversarially: given this code, how do I break it? It only flags real issues with actual file names and line numbers — no hypotheticals, no noise.
 
+**Token-efficient by design.** Wingman's instructions are compressed to ~2,500 tokens per invocation — down from ~19,000 in earlier verbose versions. The AI uses its own domain knowledge for each check category rather than reading a wall of explicit instructions. Same coverage, 87% fewer prompt tokens burned on every call.
+
 ---
 
 ## Works with
